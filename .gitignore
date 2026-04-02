@@ -8,3 +8,5 @@ build/
 *.log
 .claude/
 .gstack/
+.dev.vars
+.wrangler/

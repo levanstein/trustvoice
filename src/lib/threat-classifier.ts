@@ -54,7 +54,7 @@ export async function classifyThreats(
   transcript: string,
   ai: Ai
 ): Promise<ThreatAnalysis> {
-  const response = (await ai.run(
+  const response = await ai.run(
     "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     {
       messages: [
@@ -67,18 +67,29 @@ export async function classifyThreats(
       temperature: 0.3,
       max_tokens: 1024,
     }
-  )) as { response?: string };
+  );
 
-  const text = response.response ?? String(response);
+  // Workers AI returns { response: string | object } — handle both
+  const aiResult = response as Record<string, unknown>;
+  const innerResponse = aiResult.response;
 
-  // Extract JSON — regex from first { to last } (handles markdown wrapping)
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error(`Failed to extract JSON from AI response: ${text}`);
+  let parsed: Record<string, unknown>;
+
+  if (typeof innerResponse === "object" && innerResponse !== null) {
+    // Local dev: AI already returns parsed JSON object
+    parsed = innerResponse as Record<string, unknown>;
+  } else {
+    // Production: AI returns a JSON string
+    const text = typeof innerResponse === "string" ? innerResponse : JSON.stringify(aiResult);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error(`Failed to extract JSON from AI response: ${text}`);
+    }
+    parsed = JSON.parse(jsonMatch[0]);
   }
 
   try {
-    const raw = JSON.parse(jsonMatch[0]);
+    const raw = parsed;
 
     // Validate and coerce LLM output to expected shape
     const analysis: ThreatAnalysis = {
