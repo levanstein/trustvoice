@@ -119,7 +119,7 @@ export async function classifyThreats(
     return analysis;
   } catch (err) {
     throw new Error(
-      `Failed to parse AI response as JSON: ${err}. Raw: ${text}`
+      `Failed to parse AI response as JSON: ${err}. Raw: ${JSON.stringify(parsed)}`
     );
   }
 }

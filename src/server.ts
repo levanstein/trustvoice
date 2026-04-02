@@ -88,6 +88,61 @@ app.post("/api/analyze", async (c) => {
   });
 });
 
+// Demo mode — accepts text directly, skips ElevenLabs transcription
+app.post("/api/analyze-text", async (c) => {
+  const startTime = Date.now();
+
+  const body = (await c.req.json()) as { transcript?: string };
+  const transcript = body.transcript?.trim();
+
+  if (!transcript) {
+    return c.json({ error: "No transcript provided" }, 400);
+  }
+
+  // Classify threats with Workers AI
+  let analysis: ThreatAnalysis;
+  try {
+    analysis = await classifyThreats(transcript, c.env.AI);
+  } catch (err) {
+    console.error("Classification error:", err);
+    return c.json({ error: "Threat classification failed" }, 500);
+  }
+
+  // Send Slack alert if risk > 60
+  let slackResult = { sent: false, channel: "#security-alerts" };
+  if (analysis.risk_score > 60 && c.env.SLACK_WEBHOOK_URL) {
+    c.executionCtx.waitUntil(
+      sendSlackAlert(transcript, analysis, c.env.SLACK_WEBHOOK_URL).catch(
+        (err) => console.error("Slack alert failed:", err)
+      )
+    );
+    slackResult = { sent: true, channel: "#security-alerts" };
+  }
+
+  // Store in Durable Object
+  try {
+    const id = c.env.CALL_SESSION.newUniqueId();
+    const stub = c.env.CALL_SESSION.get(id);
+    c.executionCtx.waitUntil(
+      stub.fetch("https://internal/store", {
+        method: "POST",
+        body: JSON.stringify({ transcript, analysis, slackResult }),
+      })
+    );
+  } catch (err) {
+    console.error("DO storage failed (non-critical):", err);
+  }
+
+  const processingTimeMs = Date.now() - startTime;
+
+  return c.json({
+    transcript,
+    analysis,
+    slack_alert: slackResult,
+    processing_time_ms: processingTimeMs,
+  });
+});
+
 // Separate TTS endpoint — frontend passes verdict text
 app.get("/api/verdict-audio", async (c) => {
   const text = c.req.query("text");

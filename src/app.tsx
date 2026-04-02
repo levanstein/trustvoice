@@ -50,64 +50,35 @@ export function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Start microphone recording
-  const startListening = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // Demo mode: hardcoded scripts
+  const DEMO_SCRIPTS = {
+    scam: `Hi, this is James Richardson from the executive office. I'm calling on behalf of Mr. Anderson, the CEO. He's currently in a board meeting and asked me to reach out to you directly because this is time-sensitive. We have a vendor payment that needs to go out today before 5 PM. The vendor has changed their banking details, and the CEO has already approved the transfer. The amount is forty-seven thousand dollars, and it needs to go to the new account details I'll provide you. I understand this is unusual, but Mr. Anderson specifically asked that we handle this quietly — the vendor situation is confidential and related to the acquisition we're working on. He doesn't want this going through normal channels because of the sensitivity. Can you confirm you have access to process wire transfers? I'll need you to set up the new payee right now. If we miss the 5 PM deadline, the deal could fall through, and frankly, Mr. Anderson will not be happy. What's your employee ID so I can note that you're handling this?`,
+    safe: `Hi Sarah, it's Mike from accounting. Just a quick reminder that the team lunch is on Thursday at noon. We're doing Italian this time. Let me know if you have any dietary restrictions. Thanks!`,
+  };
 
-      // Prefer audio/mp4, fallback to audio/webm
-      const mimeType = MediaRecorder.isTypeSupported("audio/mp4")
-        ? "audio/mp4"
-        : MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
+  // Demo mode: simulate recording, then send hardcoded transcript
+  const startDemoRecording = useCallback((scriptKey: "scam" | "safe") => {
+    setState("listening");
+    setError(null);
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      audioChunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        analyzeAudio(blob);
-      };
-
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setState("listening");
-      setError(null);
-    } catch (err) {
-      setError(
-        "Microphone access denied. Please allow microphone access or upload a file."
-      );
-    }
+    // Simulate recording for 5 seconds (scam) or 3 seconds (safe)
+    const duration = scriptKey === "scam" ? 5000 : 3000;
+    const timer = setTimeout(() => {
+      analyzeText(DEMO_SCRIPTS[scriptKey]);
+    }, duration);
+    timersRef.current.push(timer);
   }, []);
 
-  // Stop recording
-  const stopListening = useCallback(() => {
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-      setState("processing");
-    }
+  // Stop demo recording early
+  const stopDemoRecording = useCallback(() => {
+    // Clear pending timers and trigger analysis immediately with scam script
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    analyzeText(DEMO_SCRIPTS.scam);
   }, []);
 
-  // Handle file upload
-  const handleFileUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      setState("processing");
-      setError(null);
-      analyzeAudio(file);
-    },
-    []
-  );
-
-  // Send audio to the API
-  const analyzeAudio = async (audio: Blob | File) => {
+  // Send text directly to the API (demo mode, no ElevenLabs needed)
+  const analyzeText = async (transcript: string) => {
     setState("processing");
     setError(null);
     setResult(null);
@@ -116,12 +87,10 @@ export function App() {
     setVerdictAudioUrl(null);
 
     try {
-      const formData = new FormData();
-      formData.append("audio", audio);
-
-      const response = await fetch("/api/analyze", {
+      const response = await fetch("/api/analyze-text", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript }),
       });
 
       if (!response.ok) {
@@ -316,7 +285,7 @@ export function App() {
           </svg>
           <h2>Monitoring Active</h2>
           <div className="btn-group">
-            <button className="btn btn-primary" onClick={startListening}>
+            <button className="btn btn-primary" onClick={() => startDemoRecording("scam")}>
               <svg
                 width="16"
                 height="16"
@@ -330,22 +299,12 @@ export function App() {
                 <line x1="12" y1="19" x2="12" y2="23" />
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
-              Start Listening
+              Simulate Scam Call
             </button>
             <span className="or-divider">or</span>
-            <button
-              className="btn"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Upload Audio
+            <button className="btn" onClick={() => startDemoRecording("safe")}>
+              Simulate Safe Call
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="audio/*"
-              className="file-input"
-              onChange={handleFileUpload}
-            />
           </div>
         </div>
       )}
@@ -374,8 +333,8 @@ export function App() {
               />
             ))}
           </div>
-          <button className="btn btn-danger" onClick={stopListening}>
-            Stop Recording
+          <button className="btn btn-danger" onClick={stopDemoRecording}>
+            Stop &amp; Analyze
           </button>
         </div>
       )}
@@ -384,7 +343,7 @@ export function App() {
       {state === "processing" && (
         <div className="processing">
           <div className="spinner" />
-          <p>Analyzing call... running ElevenLabs Scribe + Workers AI pipeline</p>
+          <p>Analyzing call... running Workers AI threat classification</p>
         </div>
       )}
 
@@ -395,8 +354,8 @@ export function App() {
           {visibleSteps.includes("transcript") && (
             <div className="step-card">
               <div className="step-header">
-                <span className="step-title">Speech-to-Text Transcription</span>
-                <span className="chip chip-elevenlabs">ElevenLabs Scribe v2</span>
+                <span className="step-title">Call Transcript</span>
+                <span className="chip chip-elevenlabs">Captured</span>
               </div>
               <TranscriptText
                 text={typedText}
@@ -416,7 +375,7 @@ export function App() {
                 </span>
               </div>
               <div className="service-flow">
-                <span className="chip chip-elevenlabs">Scribe v2</span>
+                <span className="chip chip-elevenlabs">Transcript</span>
                 <span className="flow-arrow">→</span>
                 <span className="chip chip-cloudflare">Workers AI</span>
                 <span className="flow-arrow">→</span>
