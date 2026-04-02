@@ -20,7 +20,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["CallSession"]
+      "new_sqlite_classes": ["CallSession"]
     }
   ],
   "ai": {
